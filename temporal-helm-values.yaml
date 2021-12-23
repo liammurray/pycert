@@ -1,0 +1,189 @@
+web:
+  ingress:
+    enabled: true
+    annotations:
+      alb.ingress.kubernetes.io/scheme: internal
+      # *.dev.acme.io
+      alb.ingress.kubernetes.io/certificate-arn: |
+        arn:aws:acm:us-west-2:ACCOUNT:certificate/123
+      alb.ingress.kubernetes.io/group.name: temporal-ingress
+      external-dns.alpha.kubernetes.io/hostname: temporal.dev.acme.io
+      kubernetes.io/ingress.class: alb
+      alb.ingress.kubernetes.io/target-type: ip
+      alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+  config:
+    auth:
+      enabled: false
+  additionalVolumes:
+    - name: acme-tls-certs
+      projected:
+        sources:
+          - configMap:
+              name: acme-tls-certs
+    - name: acme-tls-keys
+      projected:
+        sources:
+          - secret:
+              name: acme-tls-keys
+  additionalVolumeMounts:
+    - name: acme-tls-certs
+      mountPath: "/etc/temporal/config/certs/"
+      readOnly: true
+    - name: acme-tls-keys
+      mountPath: "/etc/temporal/config/keys"
+      readOnly: true
+
+  additionalEnv:
+    # For hitting backend (internode)
+    - name: TEMPORAL_TLS_CERT_PATH
+      #value: "/etc/temporal/config/certs/internode.pem"
+      value: "/etc/temporal/config/certs/internode-chain.pem"
+    - name: TEMPORAL_TLS_KEY_PATH
+      value: "/etc/temporal/config/keys/internode.key"
+    # For validating cert returned from backend
+    - name: TEMPORAL_TLS_CA_PATH
+      value: "/etc/temporal/config/certs/cluster-ca.pem"
+    # When web hits frontend
+    - name: TEMPORAL_TLS_ENABLE_HOST_VERIFICATION
+      value: "true"
+    - name: TEMPORAL_TLS_SERVER_NAME
+      value: "temporal-frontend.dev.acme.io"
+
+global:
+  tls:
+    internode:
+      server:
+        # Returns internode cert
+        requireClientAuth: true
+        certFile: /etc/temporal/config/certs/internode.pem
+        keyFile: /etc/temporal/config/keys/internode.key
+        clientCaFiles:
+          # For validating certs from other backend services
+          - /etc/temporal/config/certs/cluster-ca.pem
+      client:
+        # Hits internode
+        serverName: temporal-internode.dev.acme.io
+        rootCaFiles:
+          - /etc/temporal/config/certs/cluster-ca.pem
+
+    frontend:
+      server:
+        # Returns frontend cert
+        requireClientAuth: true
+        certFile: /etc/temporal/config/certs/frontend-chain.pem
+        #certFile: /etc/temporal/config/certs/frontend.pem
+        keyFile: /etc/temporal/config/keys/frontend.key
+        clientCaFiles:
+          # For validating certs from internode and client
+          - /etc/temporal/config/certs/cluster-ca.pem
+          - /etc/temporal/config/certs/client-ca.pem
+
+      client:
+        # Hits internode
+        serverName: temporal-internode.dev.acme.io
+        rootCaFiles:
+          - /etc/temporal/config/certs/cluster-ca.pem
+
+    systemWorker:
+      # Returns internode cert
+      certFile: /etc/temporal/config/certs/internode.pem
+      keyFile: /etc/temporal/config/keys/internode.key
+      client:
+        # Hits frontend
+        serverName: temporal-frontend.dev.acme.io
+        rootCaFiles:
+          - /etc/temporal/config/certs/cluster-ca.pem
+
+server:
+  # Used for "frontend" "history" "matching" "worker"
+  # Default is 1
+  replicaCount: 3
+
+  additionalVolumes:
+    - name: acme-tls-certs
+      projected:
+        sources:
+          - configMap:
+              name: acme-tls-certs
+    - name: acme-tls-keys
+      projected:
+        sources:
+          - secret:
+              name: acme-tls-keys
+
+  additionalVolumeMounts:
+    - name: acme-tls-certs
+      mountPath: "/etc/temporal/config/certs"
+      readOnly: true
+    - name: acme-tls-keys
+      mountPath: "/etc/temporal/config/keys"
+      readOnly: true
+
+  frontend:
+    service:
+      # Add annotations for NLB
+      annotations:
+        service.beta.kubernetes.io/aws-load-balancer-type: external
+        service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+        service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+        service.beta.kubernetes.io/aws-load-balancer-name: k8s-dev-temporal
+        external-dns.alpha.kubernetes.io/hostname: temporal-frontend.dev.acme.io
+      type: LoadBalancer
+
+  config:
+    logLevel: "debug,info"
+
+    numHistoryShards: 512
+
+    persistence:
+      default:
+        driver: "cassandra"
+
+        cassandra:
+          hosts: ["k8ssandra-dc1-stargate-service.k8ssandra"]
+          port: 9042
+          keyspace: temporal
+          user: "k8ssandra-superuser"
+          #password: "password"
+          existingSecret: "cassandra-secret"
+          replicationFactor: 1
+          consistency:
+            default:
+              consistency: "local_quorum"
+              serialConsistency: "local_serial"
+
+      visibility:
+        driver: "cassandra"
+
+        cassandra:
+          hosts: ["k8ssandra-dc1-stargate-service.k8ssandra"]
+          port: 9042
+          keyspace: temporal_visibility
+          user: "k8ssandra-superuser"
+          # Added to namespace Temporal prior to deploying the helm chart
+          existingSecret: "cassandra-secret"
+          replicationFactor: 1
+          consistency:
+            default:
+              consistency: "local_quorum"
+              serialConsistency: "local_serial"
+
+cassandra:
+  enabled: false
+
+mysql:
+  enabled: false
+
+postgresql:
+  enabled: false
+
+# Sets pod affinity and that is not supported by Karpenter
+# We can spin up our own AWS managed version if we need this
+elasticsearch:
+  enabled: false
+
+schema:
+  setup:
+    enabled: false
+  update:
+    enabled: false

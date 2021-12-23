@@ -59,3 +59,7 @@ View cert info
 ```bash
 openssl x509 -text -in -noout -in ./certificates/dev/cluster/internode-chain.pem
 ```
+
+# Temporal
+
+See [Temporal Helm Chart Values](./temporal-helm-values.yaml) for an example of TLS configuration for Temporal. Note that this only works with a modified version of the helm chart that passes the TLS config.
