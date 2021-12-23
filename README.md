@@ -62,4 +62,4 @@ openssl x509 -text -in -noout -in ./certificates/dev/cluster/internode-chain.pem
 
 # Temporal
 
-See [Temporal Helm Chart Values](./temporal-helm-values.yaml) for an example of TLS configuration for Temporal. Note that this only works with a modified version of the helm chart that passes the TLS config.
+See [Temporal Helm Chart Values](./temporal-helm-values.yaml) for an example of TLS configuration for Temporal. Note that this only works with a modified version of the helm chart that passes the TLS config (as well as changes to pass web-UI environment and make the ingress work with an AWS load balancer).
